@@ -2,35 +2,32 @@ import streamlit as st
 import pandas as pd
 import os
 
-st.set_page_config(page_title="Rationsrechner Dairy", layout="wide")
-
-st.title("🐄 Rationsberechner (Praxis-Version mit FM & TM %)")
-st.caption("Eingabe über Frischmasse (FM) und Trockenmasse-Gehalt (TM %)")
+st.set_page_config(page_title="fodjan-style Rationsrechner", layout="wide")
 
 CSV_FILE = "futtermittel.csv"
 
 # ---------------------------------------------------------
-# 1. STANDARDFUTTERMITTEL (Inklusive TM % und kg FM)
+# 1. STANDARDFUTTERMITTEL (Eingabe in kg TM)
 # ---------------------------------------------------------
 default_data = [
     {
         "Name": "Gras-Silage 1. Schnitt", "Typ": "Grundfutter", 
-        "TM_Prozent": 35.0, "Menge_kg_FM": 21.43,
+        "TM_Prozent": 35.0, "Menge_kg_TM": 7.5,
         "NEL": 6.4, "XP": 160, "nXP": 140, "RNB": 3.2, "NDF": 450, "uNDF240": 160, "peNDF": 380, "Staarke": 20
     },
     {
         "Name": "Mais-Silage", "Typ": "Grundfutter", 
-        "TM_Prozent": 33.0, "Menge_kg_FM": 19.70,
+        "TM_Prozent": 33.0, "Menge_kg_TM": 6.5,
         "NEL": 6.7, "XP": 80, "nXP": 135, "RNB": -8.8, "NDF": 360, "uNDF240": 110, "peNDF": 290, "Staarke": 320
     },
     {
         "Name": "NG TMR Raps", "Typ": "Kraftfutter", 
-        "TM_Prozent": 88.0, "Menge_kg_FM": 2.84,
+        "TM_Prozent": 88.0, "Menge_kg_TM": 2.5,
         "NEL": 7.0, "XP": 380, "nXP": 240, "RNB": 22.4, "NDF": 280, "uNDF240": 120, "peNDF": 100, "Staarke": 30
     },
     {
         "Name": "NG AF Frey", "Typ": "Kraftfutter", 
-        "TM_Prozent": 88.0, "Menge_kg_FM": 3.98,
+        "TM_Prozent": 88.0, "Menge_kg_TM": 3.5,
         "NEL": 8.1, "XP": 110, "nXP": 165, "RNB": -8.8, "NDF": 120, "uNDF240": 30, "peNDF": 40, "Staarke": 520
     },
 ]
@@ -52,177 +49,240 @@ if "df_futter" not in st.session_state:
     st.session_state.df_futter = load_data()
 
 # ---------------------------------------------------------
-# 2. TIERDATEN & ZIELWERTE
+# NAVIGATION (SIDEBAR) - In Anlehnung an fodjan
 # ---------------------------------------------------------
-st.header("1. Tierdaten & Ziel-Bedarf")
-col_t1, col_t2 = st.columns(2)
+st.sidebar.title("🐄 Futter-Manager")
+page = st.sidebar.radio("Navigation", ["📊 Rationsplanung (TM)", "🚚 Ladeliste Mischwagen"])
 
-with col_t1:
-    kgh_ziel = st.number_input("Ziel-Milchleistung (kg ECM/Tag)", value=38.0, step=0.5)
-    gewicht = st.number_input("Körpergewicht der Kuh (kg)", value=680, step=10)
+# =========================================================
+# SEITE 1: RATIONSPLANUNG (TM-BASIS)
+# =========================================================
+if page == "📊 Rationsplanung (TM)":
+    st.title("📊 Rationsplanung & Nährstoff-Check")
+    st.caption("Planung auf Trockenmassebasis (kg TM/Kuh)")
 
-with col_t2:
-    kg_075 = gewicht ** 0.75
-    nel_bedarf_ziel = 0.293 * kg_075 + 3.14 * (kgh_ziel / 10)
-    nxp_bedarf_ziel = 0.45 * kg_075 + 85 * (kgh_ziel / 10)
-    
-    st.metric("Orientierung NEL-Bedarf", f"{nel_bedarf_ziel:.1f} MJ")
-    st.metric("Orientierung nXP-Bedarf", f"{nxp_bedarf_ziel:.0f} g/Tag")
+    # 1. Tierdaten
+    st.header("1. Tierdaten & Ziel-Bedarf")
+    col_t1, col_t2 = st.columns(2)
 
-st.divider()
+    with col_t1:
+        kgh_ziel = st.number_input("Ziel-Milchleistung (kg ECM/Tag)", value=38.0, step=0.5)
+        gewicht = st.number_input("Körpergewicht der Kuh (kg)", value=680, step=10)
 
-# ---------------------------------------------------------
-# 3. INTERAKTIVE TABELLE
-# ---------------------------------------------------------
-st.header("2. Rationskomponenten & Nährstoffe")
+    with col_t2:
+        kg_075 = gewicht ** 0.75
+        nel_bedarf_ziel = 0.293 * kg_075 + 3.14 * (kgh_ziel / 10)
+        nxp_bedarf_ziel = 0.45 * kg_075 + 85 * (kgh_ziel / 10)
+        
+        st.metric("Orientierung NEL-Bedarf", f"{nel_bedarf_ziel:.1f} MJ")
+        st.metric("Orientierung nXP-Bedarf", f"{nxp_bedarf_ziel:.0f} g/Tag")
 
-edited_df = st.data_editor(
-    st.session_state.df_futter,
-    num_rows="dynamic",
-    column_config={
-        "Name": st.column_config.TextColumn("Bezeichnung", required=True),
-        "Typ": st.column_config.SelectboxColumn("Typ", options=["Grundfutter", "Kraftfutter"], required=True),
-        "TM_Prozent": st.column_config.NumberColumn("TM (%)", min_value=10.0, max_value=100.0, format="%.1f"),
-        "Menge_kg_FM": st.column_config.NumberColumn("Menge (kg FM)", min_value=0.0, max_value=60.0, format="%.2f"),
-        "NEL": st.column_config.NumberColumn("NEL (MJ/kg TM)", min_value=0.0, max_value=12.0, format="%.2f"),
-        "XP": st.column_config.NumberColumn("XP (g/kg TM)", min_value=0, max_value=600, format="%d"),
-        "nXP": st.column_config.NumberColumn("nXP (g/kg TM)", min_value=0, max_value=500, format="%d"),
-        "RNB": st.column_config.NumberColumn("RNB (g/kg TM)", min_value=-50.0, max_value=50.0, format="%.1f"),
-        "NDF": st.column_config.NumberColumn("NDF (g/kg TM)", min_value=0, max_value=800, format="%d"),
-        "uNDF240": st.column_config.NumberColumn("uNDF240 (g/kg TM)", min_value=0, max_value=400, format="%d"),
-        "peNDF": st.column_config.NumberColumn("peNDF (g/kg TM)", min_value=0, max_value=800, format="%d"),
-        "Staarke": st.column_config.NumberColumn("Stärke (g/kg TM)", min_value=0, max_value=800, format="%d"),
-    },
-    use_container_width=True,
-    hide_index=True,
-    key="editor"
-)
+    st.divider()
 
-# Speicherverwaltung
-col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-with col_btn1:
-    if st.button("💾 Als Standard speichern"):
-        edited_df.to_csv(CSV_FILE, index=False)
-        st.session_state.df_futter = edited_df
-        st.success("Erfolgreich gespeichert!")
+    # 2. Interaktive Tabelle
+    st.header("2. Rationskomponenten (Eingabe kg TM)")
 
-with col_btn2:
-    if st.button("🔄 Auf Standard zurücksetzen"):
-        if os.path.exists(CSV_FILE):
-            os.remove(CSV_FILE)
-        st.session_state.df_futter = pd.DataFrame(default_data)
-        st.rerun()
+    edited_df = st.data_editor(
+        st.session_state.df_futter,
+        num_rows="dynamic",
+        column_config={
+            "Name": st.column_config.TextColumn("Bezeichnung", required=True),
+            "Typ": st.column_config.SelectboxColumn("Typ", options=["Grundfutter", "Kraftfutter"], required=True),
+            "Menge_kg_TM": st.column_config.NumberColumn("Menge (kg TM)", min_value=0.0, max_value=30.0, format="%.2f"),
+            "TM_Prozent": st.column_config.NumberColumn("TM (%)", min_value=10.0, max_value=100.0, format="%.1f"),
+            "NEL": st.column_config.NumberColumn("NEL (MJ/kg)", min_value=0.0, max_value=12.0, format="%.2f"),
+            "XP": st.column_config.NumberColumn("XP (g/kg)", min_value=0, max_value=600, format="%d"),
+            "nXP": st.column_config.NumberColumn("nXP (g/kg)", min_value=0, max_value=500, format="%d"),
+            "RNB": st.column_config.NumberColumn("RNB (g/kg)", min_value=-50.0, max_value=50.0, format="%.1f"),
+            "NDF": st.column_config.NumberColumn("NDF (g/kg)", min_value=0, max_value=800, format="%d"),
+            "uNDF240": st.column_config.NumberColumn("uNDF240 (g/kg)", min_value=0, max_value=400, format="%d"),
+            "peNDF": st.column_config.NumberColumn("peNDF (g/kg)", min_value=0, max_value=800, format="%d"),
+            "Staarke": st.column_config.NumberColumn("Stärke (g/kg)", min_value=0, max_value=800, format="%d"),
+        },
+        use_container_width=True,
+        hide_index=True,
+        key="editor"
+    )
 
-with col_btn3:
-    csv_buffer = edited_df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Ration als CSV herunterladen", csv_buffer, "meine_ration.csv", "text/csv")
+    # Speicherzustand sichern
+    st.session_state.df_futter = edited_df
 
-st.divider()
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+    with col_btn1:
+        if st.button("💾 Als Standard speichern"):
+            edited_df.to_csv(CSV_FILE, index=False)
+            st.success("Erfolgreich gespeichert!")
 
-# ---------------------------------------------------------
-# 4. BERECHNUNG DER GESAMTRATION (Umrechnung FM -> TM)
-# ---------------------------------------------------------
-fm_gesamt = 0.0
-tm_gesamt = 0.0
-nel_gesamt = 0.0
-xp_gesamt_g = 0.0
-nxp_gesamt_g = 0.0
-rnb_gesamt_g = 0.0
-ndf_gesamt_g = 0.0
-undf240_gesamt_g = 0.0
-pendf_gesamt_g = 0.0
-staarke_gesamt_g = 0.0
-ndf_grundfutter_g = 0.0
+    with col_btn2:
+        if st.button("🔄 Auf Standard zurücksetzen"):
+            if os.path.exists(CSV_FILE):
+                os.remove(CSV_FILE)
+            st.session_state.df_futter = pd.DataFrame(default_data)
+            st.rerun()
 
-for index, row in edited_df.iterrows():
-    fm = float(row["Menge_kg_FM"] if pd.notnull(row["Menge_kg_FM"]) else 0)
-    tm_prozent = float(row["TM_Prozent"] if pd.notnull(row["TM_Prozent"]) else 100.0)
-    
-    # Trockenmasse der Komponente berechnen
-    tm = fm * (tm_prozent / 100.0)
-    
-    fm_gesamt += fm
-    tm_gesamt += tm
-    
-    nel_gesamt += tm * float(row["NEL"] if pd.notnull(row["NEL"]) else 0)
-    xp_gesamt_g += tm * float(row["XP"] if pd.notnull(row["XP"]) else 0)
-    nxp_gesamt_g += tm * float(row["nXP"] if pd.notnull(row["nXP"]) else 0)
-    rnb_gesamt_g += tm * float(row["RNB"] if pd.notnull(row["RNB"]) else 0)
-    ndf_gesamt_g += tm * float(row["NDF"] if pd.notnull(row["NDF"]) else 0)
-    undf240_gesamt_g += tm * float(row["uNDF240"] if pd.notnull(row["uNDF240"]) else 0)
-    pendf_gesamt_g += tm * float(row["peNDF"] if pd.notnull(row["peNDF"]) else 0)
-    staarke_gesamt_g += tm * float(row["Staarke"] if pd.notnull(row["Staarke"]) else 0)
-    
-    if str(row["Typ"]) == "Grundfutter":
-        ndf_grundfutter_g += tm * float(row["NDF"] if pd.notnull(row["NDF"]) else 0)
+    with col_btn3:
+        csv_buffer = edited_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Ration als CSV herunterladen", csv_buffer, "meine_ration.csv", "text/csv")
 
-if tm_gesamt > 0:
-    nel_dichte = nel_gesamt / tm_gesamt
-    xp_dichte = xp_gesamt_g / tm_gesamt
-    nxp_dichte = nxp_gesamt_g / tm_gesamt
-    ndf_dichte = ndf_gesamt_g / tm_gesamt
-    pendf_dichte = pendf_gesamt_g / tm_gesamt
-    staarke_dichte = staarke_gesamt_g / tm_gesamt
-    gf_ndf_dichte = ndf_grundfutter_g / tm_gesamt
-    tm_gehalt_ration = (tm_gesamt / fm_gesamt * 100.0) if fm_gesamt > 0 else 0.0
-    
-    undf240_kg = undf240_gesamt_g / 1000.0
-    undf240_prozent_kg = (undf240_kg / gewicht) * 100.0
-else:
-    nel_dichte = xp_dichte = nxp_dichte = ndf_dichte = pendf_dichte = staarke_dichte = gf_ndf_dichte = tm_gehalt_ration = undf240_prozent_kg = 0.0
+    st.divider()
 
-# ---------------------------------------------------------
-# 5. ERGEBNIS-AUSGABE
-# ---------------------------------------------------------
-st.header("3. Ergebnisse der Ration")
+    # 3. Nährstoffberechnung
+    tm_gesamt = 0.0
+    fm_gesamt = 0.0
+    nel_gesamt = 0.0
+    xp_gesamt_g = 0.0
+    nxp_gesamt_g = 0.0
+    rnb_gesamt_g = 0.0
+    ndf_gesamt_g = 0.0
+    undf240_gesamt_g = 0.0
+    pendf_gesamt_g = 0.0
+    staarke_gesamt_g = 0.0
 
-# Reihe 1: Massen & Energie
-r1_1, r1_2, r1_3, r1_4, r1_5 = st.columns(5)
-r1_1.metric("Gesamt-FM", f"{fm_gesamt:.2f} kg FM")
-r1_2.metric("Gesamt-TM", f"{tm_gesamt:.2f} kg TM")
-r1_3.metric("TM-Gehalt Ration", f"{tm_gehalt_ration:.1f} %")
-r1_4.metric("NEL-Dichte", f"{nel_dichte:.2f} MJ/kg TM")
-r1_5.metric("NEL gesamt", f"{nel_gesamt:.1f} MJ")
+    for index, row in edited_df.iterrows():
+        tm = float(row["Menge_kg_TM"] if pd.notnull(row["Menge_kg_TM"]) else 0)
+        tm_prozent = float(row["TM_Prozent"] if pd.notnull(row["TM_Prozent"]) else 100.0)
+        
+        # Umrechnung TM -> FM pro Kuh
+        fm = tm / (tm_prozent / 100.0) if tm_prozent > 0 else 0.0
+        
+        tm_gesamt += tm
+        fm_gesamt += fm
+        
+        nel_gesamt += tm * float(row["NEL"] if pd.notnull(row["NEL"]) else 0)
+        xp_gesamt_g += tm * float(row["XP"] if pd.notnull(row["XP"]) else 0)
+        nxp_gesamt_g += tm * float(row["nXP"] if pd.notnull(row["nXP"]) else 0)
+        rnb_gesamt_g += tm * float(row["RNB"] if pd.notnull(row["RNB"]) else 0)
+        ndf_gesamt_g += tm * float(row["NDF"] if pd.notnull(row["NDF"]) else 0)
+        undf240_gesamt_g += tm * float(row["uNDF240"] if pd.notnull(row["uNDF240"]) else 0)
+        pendf_gesamt_g += tm * float(row["peNDF"] if pd.notnull(row["peNDF"]) else 0)
+        staarke_gesamt_g += tm * float(row["Staarke"] if pd.notnull(row["Staarke"]) else 0)
 
-# Reihe 2: Protein & Struktur
-r2_1, r2_2, r2_3, r2_4, r2_5 = st.columns(5)
-r2_1.metric("nXP gesamt", f"{nxp_gesamt_g:.0f} g/Tag")
-r2_2.metric("RNB gesamt", f"{rnb_gesamt_g:+.1f} g/Tag")
-r2_3.metric("peNDF (Struktur)", f"{pendf_dichte:.1f} g/kg TM")
-r2_4.metric("uNDF240 % KG", f"{undf240_prozent_kg:.2f} %")
-r2_5.metric("Stärke-Dichte", f"{staarke_dichte:.1f} g/kg TM")
-
-st.divider()
-
-# ---------------------------------------------------------
-# 6. PRAXIS-CHECK
-# ---------------------------------------------------------
-st.subheader("🔍 Praxis-Check & Warnsignale")
-
-col_w1, col_w2 = st.columns(2)
-
-with col_w1:
-    if rnb_gesamt_g < 0:
-        st.warning(f"⚠️ **RNB negativ ({rnb_gesamt_g:.1f} g/Tag):** Stickstoffmangel im Pansen!")
-    elif rnb_gesamt_g > 50:
-        st.info(f"ℹ️ **RNB hoch ({rnb_gesamt_g:.1f} g/Tag):** Hoher NH3-Überschuss.")
+    if tm_gesamt > 0:
+        nel_dichte = nel_gesamt / tm_gesamt
+        nxp_dichte = nxp_gesamt_g / tm_gesamt
+        pendf_dichte = pendf_gesamt_g / tm_gesamt
+        staarke_dichte = staarke_gesamt_g / tm_gesamt
+        tm_gehalt_tmr = (tm_gesamt / fm_gesamt * 100.0) if fm_gesamt > 0 else 0.0
+        
+        undf240_kg = undf240_gesamt_g / 1000.0
+        undf240_prozent_kg = (undf240_kg / gewicht) * 100.0
     else:
-        st.success(f"✅ **RNB im Zielbereich ({rnb_gesamt_g:.1f} g/Tag).**")
+        nel_dichte = nxp_dichte = pendf_dichte = staarke_dichte = tm_gehalt_tmr = undf240_prozent_kg = 0.0
 
-    if undf240_prozent_kg > 0.40:
-        st.error(f"🛑 **uNDF240 zu hoch ({undf240_prozent_kg:.2f} % des KG):** Pansenüberfüllung droht!")
-    else:
-        st.success(f"✅ **uNDF240 im Zielbereich.**")
+    st.header("3. Ergebnisse pro Kuh & Tag")
 
-with col_w2:
-    if pendf_dichte < 190 and tm_gesamt > 0:
-        st.warning(f"⚠️ **peNDF niedrig ({pendf_dichte:.1f} g/kg TM):** SARA- / Azidose-Risiko.")
-    else:
-        st.success(f"✅ **peNDF ausreichend ({pendf_dichte:.1f} g/kg TM).**")
+    r1_1, r1_2, r1_3, r1_4, r1_5 = st.columns(5)
+    r1_1.metric("Gesamt-TM", f"{tm_gesamt:.2f} kg TM")
+    r1_2.metric("Errechnete FM", f"{fm_gesamt:.2f} kg FM")
+    r1_3.metric("TM-Gehalt TMR", f"{tm_gehalt_tmr:.1f} %")
+    r1_4.metric("NEL-Dichte", f"{nel_dichte:.2f} MJ/kg TM")
+    r1_5.metric("nXP gesamt", f"{nxp_gesamt_g:.0f} g/Tag")
 
-    if tm_gehalt_ration < 38.0 and tm_gesamt > 0:
-        st.warning(f"⚠️ **Ration sehr nass ({tm_gehalt_ration:.1f} % TM):** Kann Futteraufnahme hemmen.")
-    elif tm_gehalt_ration > 55.0 and tm_gesamt > 0:
-        st.warning(f"⚠️ **Ration sehr trocken ({tm_gehalt_ration:.1f} % TM):** Selektionsrisiko am Futtertisch.")
-    else:
-        st.success(f"✅ **TM-Gehalt der TMR optimal ({tm_gehalt_ration:.1f} % TM).**")
+    r2_1, r2_2, r2_3, r2_4, r2_5 = st.columns(5)
+    r2_1.metric("RNB gesamt", f"{rnb_gesamt_g:+.1f} g/Tag")
+    r2_2.metric("peNDF (Struktur)", f"{pendf_dichte:.1f} g/kg TM")
+    r2_3.metric("uNDF240 % KG", f"{undf240_prozent_kg:.2f} %")
+    r2_4.metric("Stärke-Dichte", f"{staarke_dichte:.1f} g/kg TM")
+    r2_5.metric("NEL gesamt", f"{nel_gesamt:.1f} MJ")
+
+    st.divider()
+
+    st.subheader("🔍 Praxis-Check")
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+        if rnb_gesamt_g < 0:
+            st.warning(f"⚠️ **RNB negativ ({rnb_gesamt_g:.1f} g):** Stickstoffmangel im Pansen.")
+        else:
+            st.success(f"✅ **RNB im Zielbereich ({rnb_gesamt_g:.1f} g).**")
+        if undf240_prozent_kg > 0.40:
+            st.error(f"🛑 **uNDF240 zu hoch ({undf240_prozent_kg:.2f} % des KG):** Pansenüberfüllung!")
+        else:
+            st.success(f"✅ **Pansenfüllung im Optimum.**")
+
+    with col_w2:
+        if pendf_dichte < 190 and tm_gesamt > 0:
+            st.warning(f"⚠️ **peNDF niedrig ({pendf_dichte:.1f} g/kg TM):** SARA-Risiko.")
+        else:
+            st.success(f"✅ **peNDF ausreichend.**")
+        if tm_gehalt_tmr < 38.0 and tm_gesamt > 0:
+            st.warning(f"⚠️ **TMR sehr nass ({tm_gehalt_tmr:.1f} % TM).**")
+        elif tm_gehalt_tmr > 55.0 and tm_gesamt > 0:
+            st.warning(f"⚠️ **TMR sehr trocken ({tm_gehalt_tmr:.1f} % TM):** Selektionsgefahr.")
+        else:
+            st.success(f"✅ **TM-Gehalt der TMR optimal.**")
+
+
+# =========================================================
+# SEITE 2: LADELISTE FÜR DEN FUTTERMISCHWAGEN
+# =========================================================
+elif page == "🚚 Ladeliste Mischwagen":
+    st.title("🚚 Ladeliste für den Futtermischwagen")
+    st.caption("Berechnung der exakten Einwiegemengen nach Kuhanzahl")
+
+    df_futter = st.session_state.df_futter
+
+    # Eingabe Herdengröße
+    col_l1, col_l2, col_l3 = st.columns(3)
+    with col_l1:
+        kuh_anzahl = st.number_input("Anzahl der Kühe in der Gruppe", value=120, step=1, min_value=1)
+    with col_l2:
+        zuschlag = st.number_input("Sicherheitszuschlag / TMR-Rest (%)", value=2.0, step=0.5, min_value=0.0)
+    with col_l3:
+        kuh_faktor = kuh_anzahl * (1.0 + (zuschlag / 100.0))
+        st.metric("Berechnungsgrundlage Kühe", f"{kuh_faktor:.1f} Kühe")
+
+    st.divider()
+
+    # Berechnungen für die Ladeliste
+    ladeliste = []
+    kumuliert_fm = 0.0
+    gesamt_tm_herde = 0.0
+
+    for index, row in df_futter.iterrows():
+        tm_kuh = float(row.get("Menge_kg_TM", 0) or 0)
+        tm_proz = float(row.get("TM_Prozent", 100) or 100)
+        
+        # FM pro Kuh
+        fm_kuh = tm_kuh / (tm_proz / 100.0) if tm_proz > 0 else 0.0
+        
+        # Mengen für die Gesamtherde
+        fm_herde = fm_kuh * kuh_faktor
+        tm_herde = tm_kuh * kuh_faktor
+        
+        kumuliert_fm += fm_herde
+        gesamt_tm_herde += tm_herde
+
+        ladeliste.append({
+            "Futtermittel": row.get("Name", "Unbenannt"),
+            "Typ": row.get("Typ", "Grundfutter"),
+            "TM %": f"{tm_proz:.1f} %",
+            "kg TM / Kuh": round(tm_kuh, 2),
+            "kg FM / Kuh": round(fm_kuh, 2),
+            "EINWIEGEN (kg FM Herde)": round(fm_herde, 0),
+            "Waage-Stand Kumuliert (kg)": round(kumuliert_fm, 0)
+        })
+
+    df_ladeliste = pd.DataFrame(ladeliste)
+
+    st.subheader(f"📋 Ladeliste für {kuh_anzahl} Kühe (+{zuschlag}% = {kuh_faktor:.1f} Portionen)")
+    
+    # Hervorgehobene Darstellung der Ladeliste
+    st.dataframe(
+        df_ladeliste,
+        column_config={
+            "EINWIEGEN (kg FM Herde)": st.column_config.NumberColumn("👉 EINWIEGEN (kg FM)", format="%d kg"),
+            "Waage-Stand Kumuliert (kg)": st.column_config.NumberColumn("📊 Waage Kumuliert", format="%d kg"),
+        },
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.divider()
+
+    # Zusammenfassung Mischwagen
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Gesamtgewicht Mischwagen (FM)", f"{round(kumuliert_fm, 0):,.0f} kg".replace(",", "."))
+    m2.metric("Gesamt-Trockenmasse (TM)", f"{round(gesamt_tm_herde, 0):,.0f} kg".replace(",", "."))
+    m3.metric("Durchschnittlicher TM-Gehalt", f"{(gesamt_tm_herde / kumuliert_fm * 100.0 if kumuliert_fm > 0 else 0):.1f} %")
+
+    st.info("💡 **Tipp für die Praxis:** Diese Seite lässt sich auf dem Smartphone oder Tablet direkt auf dem Schlepper öffnen. Die Spalte 'Waage Kumuliert' zeigt den fortlaufenden Wert an, der auf der Waage des Mischwagens stehen muss.")
