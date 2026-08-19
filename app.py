@@ -1,21 +1,37 @@
 import streamlit as st
 import pandas as pd
+import os
 
 st.set_page_config(page_title="Rationsrechner Dairy", layout="wide")
 
-st.title("🐄 Rationsberechner (Flexible Komponenten)")
-st.caption("Version mit direkter Echtzeit-Berechnung")
+st.title("🐄 Rationsberechner (Mit Futtermittel-Speicher)")
+st.caption("Änderungen dauerhaft speichern oder als CSV exportieren")
+
+CSV_FILE = "futtermittel.csv"
 
 # ---------------------------------------------------------
-# 1. INITIALISIERUNG DER STANDARD-DATENBANK
+# 1. STANDARDFUTTERMITTEL (Falls keine CSV existiert)
 # ---------------------------------------------------------
-if "futter_liste" not in st.session_state:
-    st.session_state.futter_liste = [
-        {"Name": "Gras-Silage", "Typ": "Grundfutter", "NEL": 6.4, "XP": 160, "NDF": 450, "Menge_kg_TM": 7.5},
-        {"Name": "Mais-Silage", "Typ": "Grundfutter", "NEL": 6.7, "XP": 80, "NDF": 360, "Menge_kg_TM": 6.5},
-        {"Name": "NG TMR Raps", "Typ": "Kraftfutter", "NEL": 7.0, "XP": 380, "NDF": 280, "Menge_kg_TM": 2.5},
-        {"Name": "NG AF Frey", "Typ": "Kraftfutter", "NEL": 8.1, "XP": 110, "NDF": 120, "Menge_kg_TM": 3.5},
-    ]
+default_data = [
+    {"Name": "Gras-Silage 1. Schnitt", "Typ": "Grundfutter", "NEL": 6.4, "XP": 160, "NDF": 450, "Menge_kg_TM": 7.5},
+    {"Name": "Mais-Silage", "Typ": "Grundfutter", "NEL": 6.7, "XP": 80, "NDF": 360, "Menge_kg_TM": 6.5},
+    {"Name": "NG TMR Raps", "Typ": "Kraftfutter", "NEL": 7.0, "XP": 380, "NDF": 280, "Menge_kg_TM": 2.5},
+    {"Name": "NG AF Frey", "Typ": "Kraftfutter", "NEL": 8.1, "XP": 110, "NDF": 120, "Menge_kg_TM": 3.5},
+]
+
+# Funktion zum Laden der Daten
+def load_data():
+    if os.path.exists(CSV_FILE):
+        try:
+            return pd.read_csv(CSV_FILE)
+        except Exception:
+            return pd.DataFrame(default_data)
+    else:
+        return pd.DataFrame(default_data)
+
+# Initialisierung des Datenzustands
+if "df_futter" not in st.session_state:
+    st.session_state.df_futter = load_data()
 
 # ---------------------------------------------------------
 # 2. TIERDATEN & ZIELWERTE
@@ -34,16 +50,12 @@ with col_t2:
 st.divider()
 
 # ---------------------------------------------------------
-# 3. VERWALTUNG & BERECHNUNG DER FUTTERMITTEL (Interaktive Tabelle)
+# 3. INTERAKTIVE TABELLE
 # ---------------------------------------------------------
 st.header("2. Rationskomponenten & Nährstoffe")
-st.info("💡 **Tipp:** Eingaben werden nach Drücken von Enter oder Klick ausserhalb des Feldes sofort berechnet.")
 
-df_futter = pd.DataFrame(st.session_state.futter_liste)
-
-# Interaktive Tabelle
 edited_df = st.data_editor(
-    df_futter,
+    st.session_state.df_futter,
     num_rows="dynamic",
     column_config={
         "Name": st.column_config.TextColumn("Futtermittel-Bezeichnung", required=True),
@@ -55,15 +67,41 @@ edited_df = st.data_editor(
     },
     use_container_width=True,
     hide_index=True,
+    key="editor"
 )
 
-# Speicherzustand für den nächsten Aufruf aktualisieren
-st.session_state.futter_liste = edited_df.to_dict("records")
+# ---------------------------------------------------------
+# SPEICHER- & VERWALTUNGS-BUTTONS
+# ---------------------------------------------------------
+col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+
+with col_btn1:
+    if st.button("💾 Als Standard speichern", help="Speichert den aktuellen Tabellenstand dauerhaft in der App"):
+        edited_df.to_csv(CSV_FILE, index=False)
+        st.session_state.df_futter = edited_df
+        st.success("Erfolgreich gespeichert!")
+
+with col_btn2:
+    if st.button("🔄 Auf Standard zurücksetzen"):
+        if os.path.exists(CSV_FILE):
+            os.remove(CSV_FILE)
+        st.session_state.df_futter = pd.DataFrame(default_data)
+        st.rerun()
+
+with col_btn3:
+    # CSV-Download-Button für Rations-Sicherungen
+    csv_buffer = edited_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Ration als CSV herunterladen",
+        data=csv_buffer,
+        file_name="meine_ration.csv",
+        mime="text/csv"
+    )
 
 st.divider()
 
 # ---------------------------------------------------------
-# 4. BERECHNUNG DER GESAMTRATION (Direkt aus edited_df)
+# 4. ECHTZEIT-BERECHNUNG DER GESAMTRATION
 # ---------------------------------------------------------
 tm_gesamt = 0.0
 nel_gesamt = 0.0
@@ -71,7 +109,6 @@ xp_gesamt_g = 0.0
 ndf_gesamt_g = 0.0
 ndf_grundfutter_g = 0.0
 
-# Direkt über die Zeilen der aktuell bearbeiteten Tabelle iterieren
 for index, row in edited_df.iterrows():
     menge = float(row["Menge_kg_TM"] if pd.notnull(row["Menge_kg_TM"]) else 0)
     nel = float(row["NEL"] if pd.notnull(row["NEL"]) else 0)
@@ -87,7 +124,6 @@ for index, row in edited_df.iterrows():
     if typ == "Grundfutter":
         ndf_grundfutter_g += menge * ndf
 
-# Konzentrationen in der Trockenmasse
 if tm_gesamt > 0:
     nel_pro_kg_tm = nel_gesamt / tm_gesamt
     xp_pro_kg_tm = xp_gesamt_g / tm_gesamt
