@@ -7,7 +7,7 @@ st.set_page_config(page_title="fodjan-style Rationsrechner", layout="wide")
 CSV_FILE = "futtermittel.csv"
 
 # ---------------------------------------------------------
-# 1. STANDARDFUTTERMITTEL (Inklusive Wasser mit TM = 0 %)
+# 1. STANDARDFUTTERMITTEL
 # ---------------------------------------------------------
 default_data = [
     {
@@ -32,12 +32,12 @@ default_data = [
     },
     {
         "Name": "Wasser (TMR-Befeuchtung)", "Typ": "Grundfutter", 
-        "TM_Prozent": 0.0, "Menge_kg_TM": 2.0,  # 2 Liter/kg Wasserzugabe
+        "TM_Prozent": 0.0, "Menge_kg_TM": 2.0,
         "NEL": 0.0, "XP": 0, "nXP": 0, "RNB": 0.0, "NDF": 0, "uNDF240": 0, "peNDF": 0, "Staarke": 0
     },
 ]
 
-def load_data():
+def load_initial_data():
     if os.path.exists(CSV_FILE):
         try:
             df = pd.read_csv(CSV_FILE)
@@ -50,8 +50,9 @@ def load_data():
     else:
         return pd.DataFrame(default_data)
 
-if "df_futter" not in st.session_state:
-    st.session_state.df_futter = load_data()
+# Initialisierung des Basis-Dataframes im Session State (wird NUR beim ersten Start geladen)
+if "initial_df" not in st.session_state:
+    st.session_state.initial_df = load_initial_data()
 
 # ---------------------------------------------------------
 # NAVIGATION (SIDEBAR)
@@ -88,7 +89,7 @@ if page == "📊 Rationsplanung (TM)":
     st.header("2. Rationskomponenten")
 
     edited_df = st.data_editor(
-        st.session_state.df_futter,
+        st.session_state.initial_df,
         num_rows="dynamic",
         column_config={
             "Name": st.column_config.TextColumn("Bezeichnung", required=True),
@@ -109,20 +110,22 @@ if page == "📊 Rationsplanung (TM)":
         key="editor"
     )
 
-    # Speicherzustand sichern
-    st.session_state.df_futter = edited_df
+    # Aktuellen Arbeitsstand global verfuegbar machen für die Ladeliste
+    st.session_state.active_df = edited_df
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
     with col_btn1:
         if st.button("💾 Als Standard speichern"):
             edited_df.to_csv(CSV_FILE, index=False)
+            st.session_state.initial_df = edited_df
             st.success("Erfolgreich gespeichert!")
 
     with col_btn2:
         if st.button("🔄 Auf Standard zurücksetzen"):
             if os.path.exists(CSV_FILE):
                 os.remove(CSV_FILE)
-            st.session_state.df_futter = pd.DataFrame(default_data)
+            st.session_state.initial_df = pd.DataFrame(default_data)
+            st.session_state.active_df = pd.DataFrame(default_data)
             st.rerun()
 
     with col_btn3:
@@ -131,7 +134,7 @@ if page == "📊 Rationsplanung (TM)":
 
     st.divider()
 
-    # 3. Nährstoffberechnung (Direkt über edited_df -> Sofort-Übernahme ohne Verzögerung)
+    # 3. Nährstoffberechnung
     tm_gesamt = 0.0
     fm_gesamt = 0.0
     nel_gesamt = 0.0
@@ -147,8 +150,6 @@ if page == "📊 Rationsplanung (TM)":
         tm_wert = float(row["Menge_kg_TM"] if pd.notnull(row["Menge_kg_TM"]) else 0)
         tm_prozent = float(row["TM_Prozent"] if pd.notnull(row["TM_Prozent"]) else 0)
         
-        # Sonderbehandlung Wasser (TM % = 0):
-        # Bei Wasser zählt die eingegebene Menge direkt als Frischmasse / Litermenge
         if tm_prozent == 0:
             fm = tm_wert
             tm = 0.0
@@ -230,8 +231,8 @@ elif page == "🚚 Ladeliste Mischwagen":
     st.title("🚚 Ladeliste für den Futtermischwagen")
     st.caption("Berechnung der exakten Einwiegemengen nach Kuhanzahl")
 
-    # Direkt auf den bearbeiteten Zustand zugreifen
-    df_futter = st.session_state.df_futter
+    # Aktuelle Bearbeitung oder Initialzustand laden
+    df_futter = st.session_state.get("active_df", st.session_state.initial_df)
 
     col_l1, col_l2, col_l3 = st.columns(3)
     with col_l1:
@@ -252,9 +253,8 @@ elif page == "🚚 Ladeliste Mischwagen":
         tm_wert = float(row.get("Menge_kg_TM", 0) or 0)
         tm_proz = float(row.get("TM_Prozent", 0) or 0)
         
-        # Berechnung für Wasser (TM % = 0) vs. andere Futtermittel
         if tm_proz == 0:
-            fm_kuh = tm_wert  # Liter / kg Wasser direkt
+            fm_kuh = tm_wert
             tm_kuh = 0.0
         else:
             tm_kuh = tm_wert
