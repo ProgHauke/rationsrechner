@@ -4,12 +4,11 @@ import pandas as pd
 st.set_page_config(page_title="Rationsrechner Dairy", layout="wide")
 
 st.title("🐄 Rationsberechner (Flexible Komponenten)")
-st.caption("Version mit anpassbarer Futtermittel-Datenbank")
+st.caption("Version mit direkter Echtzeit-Berechnung")
 
 # ---------------------------------------------------------
-# 1. INITIALISIERUNG DER FUTTERMITTEL-DATENBANK (Session State)
+# 1. INITIALISIERUNG DER STANDARD-DATENBANK
 # ---------------------------------------------------------
-# Damit Änderungen im Browser erhalten bleiben, speichern wir die Daten in st.session_state
 if "futter_liste" not in st.session_state:
     st.session_state.futter_liste = [
         {"Name": "Gras-Silage", "Typ": "Grundfutter", "NEL": 6.4, "XP": 160, "NDF": 450, "Menge_kg_TM": 7.5},
@@ -38,15 +37,14 @@ st.divider()
 # 3. VERWALTUNG & BERECHNUNG DER FUTTERMITTEL (Interaktive Tabelle)
 # ---------------------------------------------------------
 st.header("2. Rationskomponenten & Nährstoffe")
-st.info("💡 **Tipp:** Sie können Namen, Nährstoffe (NEL in MJ, XP & NDF in g/kg TM) und Mengen direkt in der Tabelle bearbeiten.")
+st.info("💡 **Tipp:** Eingaben werden nach Drücken von Enter oder Klick ausserhalb des Feldes sofort berechnet.")
 
-# Konvertierung in Pandas DataFrame für die interaktive Tabelle
 df_futter = pd.DataFrame(st.session_state.futter_liste)
 
-# Interaktive Tabelle (data_editor)
+# Interaktive Tabelle
 edited_df = st.data_editor(
     df_futter,
-    num_rows="dynamic",  # Erlaubt das Hinzufügen und Löschen von Zeilen direkt in der Tabelle
+    num_rows="dynamic",
     column_config={
         "Name": st.column_config.TextColumn("Futtermittel-Bezeichnung", required=True),
         "Typ": st.column_config.SelectboxColumn("Typ", options=["Grundfutter", "Kraftfutter"], required=True),
@@ -59,13 +57,13 @@ edited_df = st.data_editor(
     hide_index=True,
 )
 
-# Aktualisierung des Session States mit den bearbeiteten Daten
+# Speicherzustand für den nächsten Aufruf aktualisieren
 st.session_state.futter_liste = edited_df.to_dict("records")
 
 st.divider()
 
 # ---------------------------------------------------------
-# 4. BERECHNUNG DER GESAMTRATION
+# 4. BERECHNUNG DER GESAMTRATION (Direkt aus edited_df)
 # ---------------------------------------------------------
 tm_gesamt = 0.0
 nel_gesamt = 0.0
@@ -73,12 +71,13 @@ xp_gesamt_g = 0.0
 ndf_gesamt_g = 0.0
 ndf_grundfutter_g = 0.0
 
-for row in st.session_state.futter_liste:
-    menge = float(row.get("Menge_kg_TM", 0) or 0)
-    nel = float(row.get("NEL", 0) or 0)
-    xp = float(row.get("XP", 0) or 0)
-    ndf = float(row.get("NDF", 0) or 0)
-    typ = row.get("Typ", "Grundfutter")
+# Direkt über die Zeilen der aktuell bearbeiteten Tabelle iterieren
+for index, row in edited_df.iterrows():
+    menge = float(row["Menge_kg_TM"] if pd.notnull(row["Menge_kg_TM"]) else 0)
+    nel = float(row["NEL"] if pd.notnull(row["NEL"]) else 0)
+    xp = float(row["XP"] if pd.notnull(row["XP"]) else 0)
+    ndf = float(row["NDF"] if pd.notnull(row["NDF"]) else 0)
+    typ = str(row["Typ"]) if pd.notnull(row["Typ"]) else "Grundfutter"
 
     tm_gesamt += menge
     nel_gesamt += menge * nel
