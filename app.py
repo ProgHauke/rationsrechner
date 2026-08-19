@@ -7,7 +7,7 @@ st.set_page_config(page_title="fodjan-style Rationsrechner", layout="wide")
 CSV_FILE = "futtermittel.csv"
 
 # ---------------------------------------------------------
-# 1. STANDARDFUTTERMITTEL (Eingabe in kg TM)
+# 1. STANDARDFUTTERMITTEL (Inklusive Wasser mit TM = 0 %)
 # ---------------------------------------------------------
 default_data = [
     {
@@ -30,6 +30,11 @@ default_data = [
         "TM_Prozent": 88.0, "Menge_kg_TM": 3.5,
         "NEL": 8.1, "XP": 110, "nXP": 165, "RNB": -8.8, "NDF": 120, "uNDF240": 30, "peNDF": 40, "Staarke": 520
     },
+    {
+        "Name": "Wasser (TMR-Befeuchtung)", "Typ": "Grundfutter", 
+        "TM_Prozent": 0.0, "Menge_kg_TM": 2.0,  # 2 Liter/kg Wasserzugabe
+        "NEL": 0.0, "XP": 0, "nXP": 0, "RNB": 0.0, "NDF": 0, "uNDF240": 0, "peNDF": 0, "Staarke": 0
+    },
 ]
 
 def load_data():
@@ -49,7 +54,7 @@ if "df_futter" not in st.session_state:
     st.session_state.df_futter = load_data()
 
 # ---------------------------------------------------------
-# NAVIGATION (SIDEBAR) - In Anlehnung an fodjan
+# NAVIGATION (SIDEBAR)
 # ---------------------------------------------------------
 st.sidebar.title("🐄 Futter-Manager")
 page = st.sidebar.radio("Navigation", ["📊 Rationsplanung (TM)", "🚚 Ladeliste Mischwagen"])
@@ -80,7 +85,7 @@ if page == "📊 Rationsplanung (TM)":
     st.divider()
 
     # 2. Interaktive Tabelle
-    st.header("2. Rationskomponenten (Eingabe kg TM)")
+    st.header("2. Rationskomponenten")
 
     edited_df = st.data_editor(
         st.session_state.df_futter,
@@ -88,8 +93,8 @@ if page == "📊 Rationsplanung (TM)":
         column_config={
             "Name": st.column_config.TextColumn("Bezeichnung", required=True),
             "Typ": st.column_config.SelectboxColumn("Typ", options=["Grundfutter", "Kraftfutter"], required=True),
-            "Menge_kg_TM": st.column_config.NumberColumn("Menge (kg TM)", min_value=0.0, max_value=30.0, format="%.2f"),
-            "TM_Prozent": st.column_config.NumberColumn("TM (%)", min_value=10.0, max_value=100.0, format="%.1f"),
+            "Menge_kg_TM": st.column_config.NumberColumn("Menge (kg TM / Liter)", min_value=0.0, max_value=60.0, format="%.2f"),
+            "TM_Prozent": st.column_config.NumberColumn("TM (%)", min_value=0.0, max_value=100.0, format="%.1f"),
             "NEL": st.column_config.NumberColumn("NEL (MJ/kg)", min_value=0.0, max_value=12.0, format="%.2f"),
             "XP": st.column_config.NumberColumn("XP (g/kg)", min_value=0, max_value=600, format="%d"),
             "nXP": st.column_config.NumberColumn("nXP (g/kg)", min_value=0, max_value=500, format="%d"),
@@ -126,7 +131,7 @@ if page == "📊 Rationsplanung (TM)":
 
     st.divider()
 
-    # 3. Nährstoffberechnung
+    # 3. Nährstoffberechnung (Direkt über edited_df -> Sofort-Übernahme ohne Verzögerung)
     tm_gesamt = 0.0
     fm_gesamt = 0.0
     nel_gesamt = 0.0
@@ -139,11 +144,17 @@ if page == "📊 Rationsplanung (TM)":
     staarke_gesamt_g = 0.0
 
     for index, row in edited_df.iterrows():
-        tm = float(row["Menge_kg_TM"] if pd.notnull(row["Menge_kg_TM"]) else 0)
-        tm_prozent = float(row["TM_Prozent"] if pd.notnull(row["TM_Prozent"]) else 100.0)
+        tm_wert = float(row["Menge_kg_TM"] if pd.notnull(row["Menge_kg_TM"]) else 0)
+        tm_prozent = float(row["TM_Prozent"] if pd.notnull(row["TM_Prozent"]) else 0)
         
-        # Umrechnung TM -> FM pro Kuh
-        fm = tm / (tm_prozent / 100.0) if tm_prozent > 0 else 0.0
+        # Sonderbehandlung Wasser (TM % = 0):
+        # Bei Wasser zählt die eingegebene Menge direkt als Frischmasse / Litermenge
+        if tm_prozent == 0:
+            fm = tm_wert
+            tm = 0.0
+        else:
+            tm = tm_wert
+            fm = tm / (tm_prozent / 100.0)
         
         tm_gesamt += tm
         fm_gesamt += fm
@@ -219,9 +230,9 @@ elif page == "🚚 Ladeliste Mischwagen":
     st.title("🚚 Ladeliste für den Futtermischwagen")
     st.caption("Berechnung der exakten Einwiegemengen nach Kuhanzahl")
 
+    # Direkt auf den bearbeiteten Zustand zugreifen
     df_futter = st.session_state.df_futter
 
-    # Eingabe Herdengröße
     col_l1, col_l2, col_l3 = st.columns(3)
     with col_l1:
         kuh_anzahl = st.number_input("Anzahl der Kühe in der Gruppe", value=120, step=1, min_value=1)
@@ -233,19 +244,22 @@ elif page == "🚚 Ladeliste Mischwagen":
 
     st.divider()
 
-    # Berechnungen für die Ladeliste
     ladeliste = []
     kumuliert_fm = 0.0
     gesamt_tm_herde = 0.0
 
     for index, row in df_futter.iterrows():
-        tm_kuh = float(row.get("Menge_kg_TM", 0) or 0)
-        tm_proz = float(row.get("TM_Prozent", 100) or 100)
+        tm_wert = float(row.get("Menge_kg_TM", 0) or 0)
+        tm_proz = float(row.get("TM_Prozent", 0) or 0)
         
-        # FM pro Kuh
-        fm_kuh = tm_kuh / (tm_proz / 100.0) if tm_proz > 0 else 0.0
+        # Berechnung für Wasser (TM % = 0) vs. andere Futtermittel
+        if tm_proz == 0:
+            fm_kuh = tm_wert  # Liter / kg Wasser direkt
+            tm_kuh = 0.0
+        else:
+            tm_kuh = tm_wert
+            fm_kuh = tm_kuh / (tm_proz / 100.0)
         
-        # Mengen für die Gesamtherde
         fm_herde = fm_kuh * kuh_faktor
         tm_herde = tm_kuh * kuh_faktor
         
@@ -266,7 +280,6 @@ elif page == "🚚 Ladeliste Mischwagen":
 
     st.subheader(f"📋 Ladeliste für {kuh_anzahl} Kühe (+{zuschlag}% = {kuh_faktor:.1f} Portionen)")
     
-    # Hervorgehobene Darstellung der Ladeliste
     st.dataframe(
         df_ladeliste,
         column_config={
@@ -279,10 +292,7 @@ elif page == "🚚 Ladeliste Mischwagen":
 
     st.divider()
 
-    # Zusammenfassung Mischwagen
     m1, m2, m3 = st.columns(3)
     m1.metric("Gesamtgewicht Mischwagen (FM)", f"{round(kumuliert_fm, 0):,.0f} kg".replace(",", "."))
     m2.metric("Gesamt-Trockenmasse (TM)", f"{round(gesamt_tm_herde, 0):,.0f} kg".replace(",", "."))
-    m3.metric("Durchschnittlicher TM-Gehalt", f"{(gesamt_tm_herde / kumuliert_fm * 100.0 if kumuliert_fm > 0 else 0):.1f} %")
-
-    st.info("💡 **Tipp für die Praxis:** Diese Seite lässt sich auf dem Smartphone oder Tablet direkt auf dem Schlepper öffnen. Die Spalte 'Waage Kumuliert' zeigt den fortlaufenden Wert an, der auf der Waage des Mischwagens stehen muss.")
+    m3.metric("Durchschnittlicher TM-Gehalt TMR", f"{(gesamt_tm_herde / kumuliert_fm * 100.0 if kumuliert_fm > 0 else 0):.1f} %")
